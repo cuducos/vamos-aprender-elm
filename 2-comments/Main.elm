@@ -1,11 +1,15 @@
 module Main exposing (..)
 
-import Html exposing (br, button, div, form, h1, input, li, strong, ul, text, textarea)
+import Html exposing (br, button, div, form, h1, h3, input, label, li, strong, ul, text, textarea)
 import Html.App
-import Html.Attributes exposing (value)
+import Html.Attributes exposing (class, value)
+import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
-import Html.Events exposing (onInput, onSubmit)
-import Json.Decode exposing ((:=), list, object2, string)
+import Http
+import Json.Decode exposing ((:=), list, string)
+import Json.Decode.Pipeline exposing (decode, required, hardcoded)
+import Json.Encode
+import String
 import Task
 
 
@@ -17,18 +21,20 @@ import Task
 type alias Comment =
     { author : String
     , content : String
+    , saved : Bool
     }
 
 
 type alias Model =
     { comments : List Comment
     , form : Comment
+    , loaded : Bool
     }
 
 
 initialModel : Model
 initialModel =
-    Model [] (Comment "" "")
+    Model [] (Comment "" "" False) False
 
 
 
@@ -43,13 +49,37 @@ type Msg
     | UpdateContent String
     | ApiSuccess (List Comment)
     | ApiFail Http.Error
+    | ResetForm
+    | CommentSaved Comment
+
+
+resetForm : Model -> Model
+resetForm model =
+    { model | form = Comment "" "" False }
+
+
+updateCommentStatus : Comment -> Comment -> Comment
+updateCommentStatus new current =
+    if new.author == current.author && new.content == current.content then
+        { current | saved = True }
+    else
+        current
+
+
+updateCommentsStatus : Comment -> List Comment -> List Comment
+updateCommentsStatus newComment comments =
+    List.map (updateCommentStatus newComment) comments
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         ApiSuccess comments ->
-            ( { model | comments = comments }, Cmd.none )
+            let
+                model =
+                    { model | comments = comments, loaded = True }
+            in
+                ( model, Cmd.none )
 
         ApiFail error ->
             let
@@ -58,20 +88,42 @@ update msg model =
             in
                 ( model, Cmd.none )
 
+        ResetForm ->
+            ( resetForm model, Cmd.none )
+
         PostComment ->
             let
-                model =
-                    { comments = List.append model.comments [ model.form ]
-                    , form = Comment "" ""
-                    }
+                author =
+                    model.form.author |> String.trim
+
+                content =
+                    model.form.content |> String.trim
+
+                newModel =
+                    if (String.isEmpty author) && (String.isEmpty content) then
+                        model
+                    else
+                        { model | comments = List.append model.comments [ model.form ] }
             in
-                ( model, Cmd.none )
+                ( resetForm newModel, saveComment model.form )
 
         UpdateAuthor value ->
-            ( { model | form = Comment value model.form.content }, Cmd.none )
+            ( { model | form = Comment value model.form.content False }, Cmd.none )
 
         UpdateContent value ->
-            ( { model | form = Comment model.form.author value }, Cmd.none )
+            ( { model | form = Comment model.form.author value False }, Cmd.none )
+
+        CommentSaved comment ->
+            let
+                newComments =
+                    updateCommentsStatus comment model.comments
+            in
+                ( { model | comments = newComments }, Cmd.none )
+
+
+commentsUrl : String
+commentsUrl =
+    "https://vamosaprenderelm.herokuapp.com/api/comments/"
 
 
 loadComments : Cmd Msg
@@ -79,7 +131,25 @@ loadComments =
     Task.perform
         ApiFail
         ApiSuccess
-        (Http.get decode "http://localhost:5000/api/comments/")
+        (Http.get decodeComments commentsUrl)
+
+
+saveComment : Comment -> Cmd Msg
+saveComment comment =
+    let
+        json =
+            Json.Encode.object
+                [ ( "author", Json.Encode.string comment.author )
+                , ( "content", Json.Encode.string comment.content )
+                ]
+
+        data =
+            Json.Encode.encode 0 json |> Http.string
+    in
+        Task.perform
+            ApiFail
+            CommentSaved
+            (Http.post decodeComment commentsUrl data)
 
 
 
@@ -90,13 +160,14 @@ loadComments =
 
 decodeComment : Json.Decode.Decoder Comment
 decodeComment =
-    object2 Comment
-        ("author" := string)
-        ("content" := string)
+    decode Comment
+        |> required "author" string
+        |> required "content" string
+        |> hardcoded True
 
 
-decode : Json.Decode.Decoder (List Comment)
-decode =
+decodeComments : Json.Decode.Decoder (List Comment)
+decodeComments =
     ("comments" := list decodeComment)
 
 
@@ -116,40 +187,63 @@ pluralize name count =
 
 viewComment : Comment -> Html.Html Msg
 viewComment comment =
-    li
-        []
-        [ strong [] [ text comment.author ]
-        , br [] []
-        , text comment.content
-        ]
+    let
+        commentClass =
+            if comment.saved then
+                ""
+            else
+                "saving"
+    in
+        li
+            [ class commentClass ]
+            [ strong [] [ text comment.author ]
+            , br [] []
+            , text comment.content
+            ]
 
 
 view : Model -> Html.Html Msg
 view model =
-    let
-        count =
-            List.length model.comments
+    if model.loaded then
+        let
+            count =
+                List.length model.comments
 
-        title =
-            (toString count) ++ (pluralize " Comentário" count)
-    in
-        div
-            []
-            [ h1 [] [ text title ]
-            , ul [] (List.map viewComment model.comments)
-            , form
-                [ onSubmit PostComment ]
-                [ text "Nome:"
-                , br [] []
-                , input [ onInput UpdateAuthor, value model.form.author ] []
-                , br [] []
-                , text "Comentário:"
-                , br [] []
-                , textarea [ onInput UpdateContent, value model.form.content ] []
-                , br [] []
-                , button [] [ text "Enviar" ]
+            title =
+                (toString count) ++ (pluralize " Comentário" count)
+        in
+            div
+                []
+                [ h3 [] [ text title ]
+                , ul [ class "list-unstyled" ] (List.map viewComment model.comments)
+                , form
+                    [ onSubmit PostComment ]
+                    [ div
+                        [ class "form-group" ]
+                        [ label [] [ text "Nome:" ]
+                        , input
+                            [ class "form-control"
+                            , onInput UpdateAuthor
+                            , value model.form.author
+                            ]
+                            []
+                        ]
+                    , div
+                        [ class "form-group" ]
+                        [ label [] [ text "Comentário:" ]
+                        , textarea
+                            [ class "form-control"
+                            , onInput UpdateContent
+                            , value model.form.content
+                            ]
+                            []
+                        ]
+                    , button [ onClick ResetForm, class "btn btn-default" ] [ text "Cancelar" ]
+                    , button [ class "btn btn-primary" ] [ text "Enviar" ]
+                    ]
                 ]
-            ]
+    else
+        h1 [] [ text "Loading…" ]
 
 
 

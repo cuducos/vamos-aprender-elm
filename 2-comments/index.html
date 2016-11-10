@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Vamos aprender Elm!</title>
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+  <style type="text/css">
+    .saving { opacity: 0.5 }
+  </style>
+</head>
+<body>
+
+  <div class="row">
+    <div class="col-md-8">
+
+      <h1>Meu post no blog</h1>
+
+      <p>Aliquam in blandit nibh, pretium eleifend ipsum. Curabitur sit amet
+        lacus nec libero auctor facilisis non id leo. Ut vitae nunc at dui
+        sollicitudin consectetur. Phasellus id elit accumsan, malesuada purus
+        eu, ultricies ipsum. Morbi a leo augue. Sed euismod suscipit eros quis
+        auctor. Fusce risus mauris, aliquam eget urna sit amet, commodo
+        venenatis dolor. Nam pretium egestas sapien ut vestibulum. Nunc viverra
+        ante vel bibendum dapibus. Nulla bibendum ante ac leo dapibus auctor.
+        Suspendisse hendrerit sem id ultricies varius. Pellentesque nec
+        porttitor orci. Nam vel aliquam nulla. Integer massa ante, consectetur
+        vitae tincidunt at, fringilla in dui. Sed congue tortor nisi, ac
+        porttitor purus lobortis quis. Sed sed tempor ipsum.</p>
+
+      <p>Pellentesque maximus feugiat enim vel porta. Lorem ipsum dolor sit
+        amet, consectetur adipiscing elit. Vestibulum pulvinar, sem sed mollis
+        aliquam, neque velit euismod arcu, sed vestibulum ex dolor ut nulla.
+        Cum sociis natoque penatibus et magnis dis parturient montes, nascetur
+        ridiculus mus. Nulla ultricies placerat sagittis. Sed quis ex varius,
+        rutrum lorem quis, euismod lacus. In blandit ullamcorper ultricies. Sed
+        at massa libero.</p>
+
+      <p>Nunc vitae dolor id est accumsan ultricies. Quisque in orci orci.
+        Etiam dui ante, dapibus vel porta eget, interdum quis nibh. Nam nec
+        lorem nec libero pellentesque convallis ut at lorem. Aliquam est
+        sapien, congue volutpat vulputate eu, rhoncus ut ipsum. Vivamus ac
+        varius purus. Donec ac pretium neque. Ut quis orci tellus. Nulla cursus
+        urna et tincidunt dictum. Sed quis tempus justo, ut mollis eros. Morbi
+        congue consequat massa, vitae faucibus urna vulputate in. Integer vel
+        dui non quam venenatis auctor eget in elit. Donec sapien tortor, semper
+        a mauris nec, maximus ornare enim. Nullam at efficitur ex.</p>
+
+    </div>
+
+    <div id="app" class="col-md-4"></div>
+
+  </div>
+
+  <script type="text/javascript" src="app.js"></script>
+  <script type="text/javascript">
+    var container = document.getElementById('app');
+    Elm.Main.embed(container);
+  </script>
+
+</body>
+</html>
