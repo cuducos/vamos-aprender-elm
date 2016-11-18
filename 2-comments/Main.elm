@@ -1,16 +1,15 @@
 module Main exposing (..)
 
+import Avatar
+import Date
 import Html exposing (br, button, div, form, h1, h3, input, label, li, strong, ul, text, textarea)
-import Html.App
 import Html.Attributes exposing (class, value)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
-import Http
-import Json.Decode exposing ((:=), list, string)
+import Json.Decode exposing (field, list, nullable, string)
 import Json.Decode.Pipeline exposing (decode, required, hardcoded)
 import Json.Encode
 import String
-import Task
 
 
 --
@@ -21,6 +20,8 @@ import Task
 type alias Comment =
     { author : String
     , content : String
+    , email : Avatar.Model
+    , date : String
     , saved : Bool
     }
 
@@ -34,7 +35,7 @@ type alias Model =
 
 initialModel : Model
 initialModel =
-    Model [] (Comment "" "" False) False
+    Model [] (Comment "" "" Nothing "" False) False
 
 
 
@@ -47,15 +48,16 @@ type Msg
     = PostComment
     | UpdateAuthor String
     | UpdateContent String
-    | ApiSuccess (List Comment)
-    | ApiFail Http.Error
     | ResetForm
-    | CommentSaved Comment
+    | CommentsLoaded (Result Http.Error (List Comment))
+    | CommentSaved (Result Http.Error Comment)
+    | AvatarMsg Avatar.Msg
+    | UpdateEmail String
 
 
 resetForm : Model -> Model
 resetForm model =
-    { model | form = Comment "" "" False }
+    { model | form = Comment "" "" Nothing "" False }
 
 
 updateCommentStatus : Comment -> Comment -> Comment
@@ -74,17 +76,31 @@ updateCommentsStatus newComment comments =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        ApiSuccess comments ->
+        CommentsLoaded (Ok comments) ->
             let
-                model =
+                newModel =
                     { model | comments = comments, loaded = True }
+            in
+                ( newModel, Cmd.none )
+
+        CommentsLoaded (Err error) ->
+            let
+                err =
+                    Debug.log "loadComments failed" error
             in
                 ( model, Cmd.none )
 
-        ApiFail error ->
+        CommentSaved (Ok comment) ->
+            let
+                newComments =
+                    updateCommentsStatus comment model.comments
+            in
+                ( { model | comments = newComments }, Cmd.none )
+
+        CommentSaved (Err error) ->
             let
                 err =
-                    Debug.log "ApiFail" error
+                    Debug.log "saveComment failed" error
             in
                 ( model, Cmd.none )
 
@@ -107,18 +123,38 @@ update msg model =
             in
                 ( resetForm newModel, saveComment model.form )
 
-        UpdateAuthor value ->
-            ( { model | form = Comment value model.form.content False }, Cmd.none )
-
-        UpdateContent value ->
-            ( { model | form = Comment model.form.author value False }, Cmd.none )
-
-        CommentSaved comment ->
+        UpdateAuthor author ->
             let
-                newComments =
-                    updateCommentsStatus comment model.comments
+                form =
+                    model.form
+
+                newForm =
+                    { form | author = author }
             in
-                ( { model | comments = newComments }, Cmd.none )
+                ( { model | form = newForm }, Cmd.none )
+
+        UpdateContent content ->
+            let
+                form =
+                    model.form
+
+                newForm =
+                    { form | content = content }
+            in
+                ( { model | form = newForm }, Cmd.none )
+
+        UpdateEmail email ->
+            let
+                form =
+                    model.form
+
+                newForm =
+                    { form | email = Just email }
+            in
+                ( { model | form = newForm }, Cmd.none )
+
+        AvatarMsg msg ->
+            ( model, Cmd.none )
 
 
 commentsUrl : String
@@ -128,28 +164,33 @@ commentsUrl =
 
 loadComments : Cmd Msg
 loadComments =
-    Task.perform
-        ApiFail
-        ApiSuccess
-        (Http.get decodeComments commentsUrl)
+    Http.send
+        CommentsLoaded
+        (Http.get commentsUrl decodeComments)
 
 
 saveComment : Comment -> Cmd Msg
 saveComment comment =
     let
-        json =
-            Json.Encode.object
-                [ ( "author", Json.Encode.string comment.author )
-                , ( "content", Json.Encode.string comment.content )
-                ]
+        basicData =
+            [ ( "author", Json.Encode.string comment.author )
+            , ( "content", Json.Encode.string comment.content )
+            ]
+
+        email =
+            case comment.email of
+                Just email ->
+                    ( "email", Json.Encode.string email )
+
+                Nothing ->
+                    ( "email", Json.Encode.null )
 
         data =
-            Json.Encode.encode 0 json |> Http.string
+            email :: basicData |> Json.Encode.object |> Http.jsonBody
     in
-        Task.perform
-            ApiFail
+        Http.send
             CommentSaved
-            (Http.post decodeComment commentsUrl data)
+            (Http.post commentsUrl data decodeComment)
 
 
 
@@ -163,12 +204,14 @@ decodeComment =
     decode Comment
         |> required "author" string
         |> required "content" string
+        |> required "email" (nullable string)
+        |> required "date" string
         |> hardcoded True
 
 
 decodeComments : Json.Decode.Decoder (List Comment)
 decodeComments =
-    ("comments" := list decodeComment)
+    field "comments" (list decodeComment)
 
 
 
@@ -193,10 +236,35 @@ viewComment comment =
                 ""
             else
                 "saving"
+
+        avatar =
+            Html.map
+                (\msg -> AvatarMsg msg)
+                (Avatar.view comment.email)
+
+        date =
+            Date.fromString comment.date
+
+        dateAsString =
+            case date of
+                Ok d ->
+                    String.concat
+                        [ (toString <| Date.day d)
+                        , "/"
+                        , (toString <| Date.month d)
+                        , "/"
+                        , (toString <| Date.year d)
+                        ]
+
+                Err _ ->
+                    ""
     in
         li
             [ class commentClass ]
-            [ strong [] [ text comment.author ]
+            [ avatar
+            , br [] []
+            , strong [] [ text comment.author ]
+            , text dateAsString
             , br [] []
             , text comment.content
             ]
@@ -227,6 +295,13 @@ view model =
                             , value model.form.author
                             ]
                             []
+                        , label [] [ text "E-mail" ]
+                        , input
+                            [ class "form-control"
+                            , onInput UpdateEmail
+                            , value <| Maybe.withDefault "" model.form.email
+                            ]
+                            []
                         ]
                     , div
                         [ class "form-group" ]
@@ -252,9 +327,9 @@ view model =
 --
 
 
-main : Program Never
+main : Program Never Model Msg
 main =
-    Html.App.program
+    Html.program
         { init = ( initialModel, loadComments )
         , update = update
         , subscriptions = (\n -> Sub.none)
