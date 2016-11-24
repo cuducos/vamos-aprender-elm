@@ -2,19 +2,26 @@ module Main exposing (..)
 
 import Avatar
 import Date
-import Html exposing (br, button, div, form, h1, h3, input, label, li, strong, ul, text, textarea)
+import Html exposing (a, br, button, div, form, h1, h3, input, label, li, strong, ul, text, textarea)
 import Html.Attributes exposing (class, value)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
 import Json.Decode exposing (field, list, nullable, string)
 import Json.Decode.Pipeline exposing (decode, required, hardcoded)
 import Json.Encode
+import Navigation
 import String
+import Time
 
 
 --
 -- Model
 --
+
+
+type Page
+    = Comments
+    | Form
 
 
 type alias Comment =
@@ -30,12 +37,14 @@ type alias Model =
     { comments : List Comment
     , form : Comment
     , loaded : Bool
+    , now : Time.Time
+    , page : Page
     }
 
 
 initialModel : Model
 initialModel =
-    Model [] (Comment "" "" Nothing "" False) False
+    Model [] (Comment "" "" Nothing "" False) False 0.0 Form
 
 
 
@@ -53,6 +62,9 @@ type Msg
     | CommentSaved (Result Http.Error Comment)
     | AvatarMsg Avatar.Msg
     | UpdateEmail String
+    | Tick Time.Time
+    | UpdateUrl Navigation.Location
+    | MoveTo Page
 
 
 resetForm : Model -> Model
@@ -156,6 +168,24 @@ update msg model =
         AvatarMsg msg ->
             ( model, Cmd.none )
 
+        Tick time ->
+            ( { model | now = Time.inSeconds time }, Cmd.none )
+
+        UpdateUrl location ->
+            ( urlParser model location, Cmd.none )
+
+        MoveTo page ->
+            let
+                hash =
+                    case page of
+                        Form ->
+                            "#form"
+
+                        Comments ->
+                            "#"
+            in
+                ( model, Navigation.newUrl hash )
+
 
 commentsUrl : String
 commentsUrl =
@@ -228,8 +258,19 @@ pluralize name count =
         name ++ "s"
 
 
-viewComment : Comment -> Html.Html Msg
-viewComment comment =
+dateAgoinMinutes : Float -> String
+dateAgoinMinutes seconds =
+    let
+        ago =
+            (seconds / 60)
+                |> floor
+                |> toString
+    in
+        String.concat [ " há ", ago, " minutos" ]
+
+
+viewComment : Time.Time -> Comment -> Html.Html Msg
+viewComment now comment =
     let
         commentClass =
             if comment.saved then
@@ -245,33 +286,35 @@ viewComment comment =
         date =
             Date.fromString comment.date
 
-        dateAsString =
+        time =
             case date of
                 Ok d ->
-                    String.concat
-                        [ (toString <| Date.day d)
-                        , "/"
-                        , (toString <| Date.month d)
-                        , "/"
-                        , (toString <| Date.year d)
-                        ]
+                    Date.toTime d
+                        |> Time.inSeconds
+                        |> (-) now
 
                 Err _ ->
-                    ""
+                    0.0
+
+        ago =
+            if now > 0.0 then
+                dateAgoinMinutes time
+            else
+                ""
     in
         li
             [ class commentClass ]
             [ avatar
             , br [] []
             , strong [] [ text comment.author ]
-            , text dateAsString
+            , text ago
             , br [] []
             , text comment.content
             ]
 
 
-view : Model -> Html.Html Msg
-view model =
+viewComments : Model -> Html.Html Msg
+viewComments model =
     if model.loaded then
         let
             count =
@@ -279,46 +322,90 @@ view model =
 
             title =
                 (toString count) ++ (pluralize " Comentário" count)
+
+            viewCommentNow =
+                viewComment model.now
         in
             div
                 []
                 [ h3 [] [ text title ]
-                , ul [ class "list-unstyled" ] (List.map viewComment model.comments)
-                , form
-                    [ onSubmit PostComment ]
-                    [ div
-                        [ class "form-group" ]
-                        [ label [] [ text "Nome:" ]
-                        , input
-                            [ class "form-control"
-                            , onInput UpdateAuthor
-                            , value model.form.author
-                            ]
-                            []
-                        , label [] [ text "E-mail" ]
-                        , input
-                            [ class "form-control"
-                            , onInput UpdateEmail
-                            , value <| Maybe.withDefault "" model.form.email
-                            ]
-                            []
-                        ]
-                    , div
-                        [ class "form-group" ]
-                        [ label [] [ text "Comentário:" ]
-                        , textarea
-                            [ class "form-control"
-                            , onInput UpdateContent
-                            , value model.form.content
-                            ]
-                            []
-                        ]
-                    , button [ onClick ResetForm, class "btn btn-default" ] [ text "Cancelar" ]
-                    , button [ class "btn btn-primary" ] [ text "Enviar" ]
-                    ]
+                , ul [ class "list-unstyled" ] (List.map viewCommentNow model.comments)
                 ]
     else
         h1 [] [ text "Loading…" ]
+
+
+viewForm : Model -> Html.Html Msg
+viewForm model =
+    div
+        []
+        [ h3 [] [ text "Comente aqui" ]
+        , form
+            [ onSubmit PostComment ]
+            [ div
+                [ class "form-group" ]
+                [ label [] [ text "Nome:" ]
+                , input
+                    [ class "form-control"
+                    , onInput UpdateAuthor
+                    , value model.form.author
+                    ]
+                    []
+                , label [] [ text "E-mail" ]
+                , input
+                    [ class "form-control"
+                    , onInput UpdateEmail
+                    , value <| Maybe.withDefault "" model.form.email
+                    ]
+                    []
+                ]
+            , div
+                [ class "form-group" ]
+                [ label [] [ text "Comentário:" ]
+                , textarea
+                    [ class "form-control"
+                    , onInput UpdateContent
+                    , value model.form.content
+                    ]
+                    []
+                ]
+            , button [ onClick ResetForm, class "btn btn-default" ] [ text "Cancelar" ]
+            , button [ class "btn btn-primary" ] [ text "Enviar" ]
+            ]
+        ]
+
+
+view : Model -> Html.Html Msg
+view model =
+    let
+        main =
+            case model.page of
+                Comments ->
+                    viewComments model
+
+                Form ->
+                    viewForm model
+
+        menu =
+            div
+                []
+                [ a [ MoveTo Comments |> onClick ] [ text "Ver comentários" ]
+                , text " | "
+                , a [ MoveTo Form |> onClick ] [ text "Comentar" ]
+                ]
+    in
+        div [] [ menu, main ]
+
+
+
+--
+-- Subscription
+--
+
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    Time.every Time.second Tick
 
 
 
@@ -327,11 +414,25 @@ view model =
 --
 
 
+urlParser : Model -> Navigation.Location -> Model
+urlParser model location =
+    if location.hash == "#form" then
+        { model | page = Form }
+    else
+        { model | page = Comments }
+
+
+init : Navigation.Location -> ( Model, Cmd Msg )
+init location =
+    ( urlParser initialModel location, loadComments )
+
+
 main : Program Never Model Msg
 main =
-    Html.program
-        { init = ( initialModel, loadComments )
+    Navigation.program
+        UpdateUrl
+        { init = init
         , update = update
-        , subscriptions = (\n -> Sub.none)
+        , subscriptions = subscriptions
         , view = view
         }
